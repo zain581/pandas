@@ -16,7 +16,6 @@ from pandas import (
     date_range,
 )
 import pandas._testing as tm
-from pandas.core.api import Int64Index
 
 from pandas.tseries.offsets import (
     BMonthEnd,
@@ -25,13 +24,6 @@ from pandas.tseries.offsets import (
 )
 
 START, END = datetime(2009, 1, 1), datetime(2010, 1, 1)
-
-
-def test_union_many_deprecated():
-    dti = date_range("2016-01-01", periods=3)
-
-    with tm.assert_produces_warning(FutureWarning):
-        dti.union_many([dti, dti])
 
 
 class TestDatetimeIndexSetOps:
@@ -86,7 +78,6 @@ class TestDatetimeIndexSetOps:
             (rng2, other2, expected2, expected2_notsorted),
             (rng3, other3, expected3, expected3_notsorted),
         ]:
-
             result_union = rng.union(other, sort=sort)
             tm.assert_index_equal(result_union, exp)
 
@@ -107,8 +98,8 @@ class TestDatetimeIndexSetOps:
         assert result.freq == ordered.freq
 
     def test_union_bug_1730(self, sort):
-        rng_a = date_range("1/1/2012", periods=4, freq="3H")
-        rng_b = date_range("1/1/2012", periods=4, freq="4H")
+        rng_a = date_range("1/1/2012", periods=4, freq="3h")
+        rng_b = date_range("1/1/2012", periods=4, freq="4h")
 
         result = rng_a.union(rng_b, sort=sort)
         exp = list(rng_a) + list(rng_b[1:])
@@ -181,22 +172,30 @@ class TestDatetimeIndexSetOps:
 
     def test_union_dataframe_index(self):
         rng1 = date_range("1/1/1999", "1/1/2012", freq="MS")
-        s1 = Series(np.random.randn(len(rng1)), rng1)
+        s1 = Series(np.random.default_rng(2).standard_normal(len(rng1)), rng1)
 
         rng2 = date_range("1/1/1980", "12/1/2001", freq="MS")
-        s2 = Series(np.random.randn(len(rng2)), rng2)
+        s2 = Series(np.random.default_rng(2).standard_normal(len(rng2)), rng2)
         df = DataFrame({"s1": s1, "s2": s2})
 
         exp = date_range("1/1/1980", "1/1/2012", freq="MS")
         tm.assert_index_equal(df.index, exp)
 
     def test_union_with_DatetimeIndex(self, sort):
-        i1 = Int64Index(np.arange(0, 20, 2))
+        i1 = Index(np.arange(0, 20, 2, dtype=np.int64))
         i2 = date_range(start="2012-01-03 00:00:00", periods=10, freq="D")
         # Works
         i1.union(i2, sort=sort)
         # Fails with "AttributeError: can't set attribute"
         i2.union(i1, sort=sort)
+
+    def test_union_same_timezone_different_units(self):
+        # GH 55238
+        idx1 = date_range("2000-01-01", periods=3, tz="UTC").as_unit("ms")
+        idx2 = date_range("2000-01-01", periods=3, tz="UTC").as_unit("us")
+        result = idx1.union(idx2)
+        expected = date_range("2000-01-01", periods=3, tz="UTC").as_unit("us")
+        tm.assert_index_equal(result, expected)
 
     # TODO: moved from test_datetimelike; de-duplicate with version below
     def test_intersection2(self):
@@ -234,7 +233,7 @@ class TestDatetimeIndexSetOps:
         rng4 = date_range("7/1/2000", "7/31/2000", freq="D", name="idx")
         expected4 = DatetimeIndex([], freq="D", name="idx")
 
-        for (rng, expected) in [
+        for rng, expected in [
             (rng2, expected2),
             (rng3, expected3),
             (rng4, expected4),
@@ -265,7 +264,7 @@ class TestDatetimeIndexSetOps:
         expected4 = DatetimeIndex([], tz=tz, name="idx")
         assert expected4.freq is None
 
-        for (rng, expected) in [
+        for rng, expected in [
             (rng2, expected2),
             (rng3, expected3),
             (rng4, expected4),
@@ -278,7 +277,7 @@ class TestDatetimeIndexSetOps:
 
     # parametrize over both anchored and non-anchored freqs, as they
     #  have different code paths
-    @pytest.mark.parametrize("freq", ["T", "B"])
+    @pytest.mark.parametrize("freq", ["min", "B"])
     def test_intersection_empty(self, tz_aware_fixture, freq):
         # empty same freq GH2129
         tz = tz_aware_fixture
@@ -292,7 +291,7 @@ class TestDatetimeIndexSetOps:
         assert result.freq == rng.freq
 
         # no overlap GH#33604
-        check_freq = freq != "T"  # We don't preserve freq on non-anchored offsets
+        check_freq = freq != "min"  # We don't preserve freq on non-anchored offsets
         result = rng[:3].intersection(rng[-3:])
         tm.assert_index_equal(result, rng[:0])
         if check_freq:
@@ -309,11 +308,10 @@ class TestDatetimeIndexSetOps:
     def test_intersection_bug_1708(self):
         from pandas import DateOffset
 
-        index_1 = date_range("1/1/2012", periods=4, freq="12H")
+        index_1 = date_range("1/1/2012", periods=4, freq="12h")
         index_2 = index_1 + DateOffset(hours=1)
 
-        with tm.assert_produces_warning(FutureWarning):
-            result = index_1 & index_2
+        result = index_1.intersection(index_2)
         assert len(result) == 0
 
     @pytest.mark.parametrize("tz", tz)
@@ -353,9 +351,11 @@ class TestDatetimeIndexSetOps:
         tm.assert_index_equal(idx_diff, expected)
         tm.assert_attr_equal("freq", idx_diff, expected)
 
+        # preserve frequency when the difference is a contiguous
+        # subset of the original range
         other = date_range("20160922", "20160925", freq="D")
         idx_diff = index.difference(other, sort)
-        expected = DatetimeIndex(["20160920", "20160921"], freq=None)
+        expected = DatetimeIndex(["20160920", "20160921"], freq="D")
         tm.assert_index_equal(idx_diff, expected)
         tm.assert_attr_equal("freq", idx_diff, expected)
 
@@ -604,4 +604,11 @@ class TestCustomDatetimeIndex:
         idx2 = date_range("2020-03-30", periods=5, freq="D", tz=tz)
         result = idx1.intersection(idx2)
         expected = date_range("2020-03-30", periods=2, freq="D", tz=tz)
+        tm.assert_index_equal(result, expected)
+
+        # GH#45863 same problem for union
+        index1 = date_range("2021-10-28", periods=3, freq="D", tz="Europe/London")
+        index2 = date_range("2021-10-30", periods=4, freq="D", tz="Europe/London")
+        result = index1.union(index2)
+        expected = date_range("2021-10-28", periods=6, freq="D", tz="Europe/London")
         tm.assert_index_equal(result, expected)

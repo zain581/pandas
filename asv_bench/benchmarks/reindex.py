@@ -54,7 +54,6 @@ class Reindex:
 
 
 class ReindexMethod:
-
     params = [["pad", "backfill"], [date_range, period_range]]
     param_names = ["method", "constructor"]
 
@@ -65,25 +64,6 @@ class ReindexMethod:
 
     def time_reindex_method(self, method, constructor):
         self.ts.reindex(self.idx, method=method)
-
-
-class Fillna:
-
-    params = ["pad", "backfill"]
-    param_names = ["method"]
-
-    def setup(self, method):
-        N = 100000
-        self.idx = date_range("1/1/2000", periods=N, freq="1min")
-        ts = Series(np.random.randn(N), index=self.idx)[::2]
-        self.ts_reindexed = ts.reindex(self.idx)
-        self.ts_float32 = self.ts_reindexed.astype("float32")
-
-    def time_reindexed(self, method):
-        self.ts_reindexed.fillna(method=method)
-
-    def time_float_32(self, method):
-        self.ts_float32.fillna(method=method)
 
 
 class LevelAlign:
@@ -107,7 +87,6 @@ class LevelAlign:
 
 
 class DropDuplicates:
-
     params = [True, False]
     param_names = ["inplace"]
 

@@ -4,23 +4,34 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import tempfile
-from types import TracebackType
 from typing import (
     IO,
+    TYPE_CHECKING,
     Any,
-    Generator,
 )
 import uuid
 
-import numpy as np
+from pandas.compat import PYPY
+from pandas.errors import ChainedAssignmentError
 
 from pandas import set_option
 
 from pandas.io.common import get_handle
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from pandas._typing import (
+        BaseBuffer,
+        CompressionOptions,
+        FilePath,
+    )
+
 
 @contextmanager
-def decompress_file(path, compression) -> Generator[IO[bytes], None, None]:
+def decompress_file(
+    path: FilePath | BaseBuffer, compression: CompressionOptions
+) -> Generator[IO[bytes], None, None]:
     """
     Open a compressed file and return a file object.
 
@@ -62,7 +73,6 @@ def set_timezone(tz: str) -> Generator[None, None, None]:
     ...
     'EST'
     """
-    import os
     import time
 
     def setTZ(tz) -> None:
@@ -115,9 +125,12 @@ def ensure_clean(
     path.touch()
 
     handle_or_str: str | IO = str(path)
+    encoding = kwargs.pop("encoding", None)
     if return_filelike:
         kwargs.setdefault("mode", "w+b")
-        handle_or_str = open(path, **kwargs)
+        if encoding is None and "b" not in kwargs["mode"]:
+            encoding = "utf-8"
+        handle_or_str = open(path, encoding=encoding, **kwargs)
 
     try:
         yield handle_or_str
@@ -129,23 +142,7 @@ def ensure_clean(
 
 
 @contextmanager
-def ensure_safe_environment_variables() -> Generator[None, None, None]:
-    """
-    Get a context manager to safely set environment variables
-
-    All changes will be undone on close, hence environment variables set
-    within this contextmanager will neither persist nor change global state.
-    """
-    saved_environ = dict(os.environ)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved_environ)
-
-
-@contextmanager
-def with_csv_dialect(name, **kwargs) -> Generator[None, None, None]:
+def with_csv_dialect(name: str, **kwargs) -> Generator[None, None, None]:
     """
     Context manager to temporarily register a CSV dialect for parsing CSV.
 
@@ -196,35 +193,24 @@ def use_numexpr(use, min_elements=None) -> Generator[None, None, None]:
         set_option("compute.use_numexpr", olduse)
 
 
-class RNGContext:
-    """
-    Context manager to set the numpy random number generator speed. Returns
-    to the original value upon exiting the context manager.
+def raises_chained_assignment_error(extra_warnings=(), extra_match=()):
+    from pandas._testing import assert_produces_warning
 
-    Parameters
-    ----------
-    seed : int
-        Seed for numpy.random.seed
+    if PYPY and not extra_warnings:
+        from contextlib import nullcontext
 
-    Examples
-    --------
-    with RNGContext(42):
-        np.random.randn()
-    """
-
-    def __init__(self, seed) -> None:
-        self.seed = seed
-
-    def __enter__(self) -> None:
-
-        self.start_state = np.random.get_state()
-        np.random.seed(self.seed)
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-
-        np.random.set_state(self.start_state)
+        return nullcontext()
+    elif PYPY and extra_warnings:
+        return assert_produces_warning(
+            extra_warnings,
+            match="|".join(extra_match),
+        )
+    else:
+        match = (
+            "A value is trying to be set on a copy of a DataFrame or Series "
+            "through chained assignment"
+        )
+        return assert_produces_warning(
+            (ChainedAssignmentError, *extra_warnings),
+            match="|".join((match, *extra_match)),
+        )

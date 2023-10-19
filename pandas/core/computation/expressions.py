@@ -7,22 +7,24 @@ Offer fast expression evaluation through numexpr
 """
 from __future__ import annotations
 
-import inspect
 import operator
+from typing import TYPE_CHECKING
 import warnings
 
 import numpy as np
 
 from pandas._config import get_option
 
-from pandas._typing import FuncType
 from pandas.util._exceptions import find_stack_level
 
+from pandas.core import roperator
 from pandas.core.computation.check import NUMEXPR_INSTALLED
-from pandas.core.ops import roperator
 
 if NUMEXPR_INSTALLED:
     import numexpr as ne
+
+if TYPE_CHECKING:
+    from pandas._typing import FuncType
 
 _TEST_MODE: bool | None = None
 _TEST_RESULT: list[bool] = []
@@ -74,7 +76,6 @@ def _evaluate_standard(op, op_str, a, b):
 def _can_use_numexpr(op, op_str, a, b, dtype_check) -> bool:
     """return a boolean if we WILL be using numexpr"""
     if op_str is not None:
-
         # required min elements (otherwise we are adding overhead)
         if a.size > _MIN_ELEMENTS:
             # check for dtype compatibility
@@ -178,7 +179,6 @@ def _where_numexpr(cond, a, b):
     result = None
 
     if _can_use_numexpr(None, "where", a, b, "where"):
-
         result = ne.evaluate(
             "where(cond_value, a_value, b_value)",
             local_dict={"cond_value": cond, "a_value": a, "b_value": b},
@@ -217,7 +217,7 @@ def _bool_arith_fallback(op_str, a, b) -> bool:
                 f"evaluating in Python space because the {repr(op_str)} "
                 "operator is not supported by numexpr for the bool dtype, "
                 f"use {repr(_BOOL_OP_UNSUPPORTED[op_str])} instead.",
-                stacklevel=find_stack_level(inspect.currentframe()),
+                stacklevel=find_stack_level(),
             )
             return True
     return False
@@ -272,7 +272,6 @@ def set_test_mode(v: bool = True) -> None:
 
 
 def _store_test_result(used_numexpr: bool) -> None:
-    global _TEST_RESULT
     if used_numexpr:
         _TEST_RESULT.append(used_numexpr)
 

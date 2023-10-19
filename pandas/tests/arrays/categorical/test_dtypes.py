@@ -15,15 +15,7 @@ import pandas._testing as tm
 
 
 class TestCategoricalDtypes:
-    def test_is_dtype_equal_deprecated(self):
-        # GH#37545
-        c1 = Categorical(list("aabca"), categories=list("abc"), ordered=False)
-
-        with tm.assert_produces_warning(FutureWarning):
-            c1.is_dtype_equal(c1)
-
     def test_categories_match_up_to_permutation(self):
-
         # test dtype comparisons between cats
 
         c1 = Categorical(list("aabca"), categories=list("abc"), ordered=False)
@@ -105,7 +97,6 @@ class TestCategoricalDtypes:
         tm.assert_categorical_equal(result, expected)
 
     def test_codes_dtypes(self):
-
         # GH 8453
         result = Categorical(["foo", "bar", "baz"])
         assert result.codes.dtype == "int8"
@@ -129,12 +120,12 @@ class TestCategoricalDtypes:
     def test_iter_python_types(self):
         # GH-19909
         cat = Categorical([1, 2])
-        assert isinstance(list(cat)[0], int)
+        assert isinstance(next(iter(cat)), int)
         assert isinstance(cat.tolist()[0], int)
 
     def test_iter_python_types_datetime(self):
         cat = Categorical([Timestamp("2017-01-01"), Timestamp("2017-01-02")])
-        assert isinstance(list(cat)[0], Timestamp)
+        assert isinstance(next(iter(cat)), Timestamp)
         assert isinstance(cat.tolist()[0], Timestamp)
 
     def test_interval_index_category(self):

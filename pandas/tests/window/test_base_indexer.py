@@ -147,7 +147,6 @@ def test_indexer_accepts_rolling_args():
         ),
     ],
 )
-@pytest.mark.filterwarnings("ignore:min_periods:FutureWarning")
 def test_rolling_forward_window(
     frame_or_series, func, np_func, expected, np_kwargs, step
 ):
@@ -267,6 +266,19 @@ def test_non_fixed_variable_window_indexer(closed, expected_data):
     result = df.rolling(indexer, closed=closed).sum()
     expected = DataFrame(expected_data, index=index)
     tm.assert_frame_equal(result, expected)
+
+
+def test_variableoffsetwindowindexer_not_dti():
+    # GH 54379
+    with pytest.raises(ValueError, match="index must be a DatetimeIndex."):
+        VariableOffsetWindowIndexer(index="foo", offset=BusinessDay(1))
+
+
+def test_variableoffsetwindowindexer_not_offset():
+    # GH 54379
+    idx = date_range("2020", periods=10)
+    with pytest.raises(ValueError, match="offset must be a DateOffset-like object."):
+        VariableOffsetWindowIndexer(index=idx, offset="foo")
 
 
 def test_fixed_forward_indexer_count(step):

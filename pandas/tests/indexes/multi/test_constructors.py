@@ -7,7 +7,7 @@ import itertools
 import numpy as np
 import pytest
 
-from pandas.compat import pa_version_under1p01
+from pandas.compat import pa_version_under7p0
 
 from pandas.core.dtypes.cast import construct_1d_object_array_from_listlike
 
@@ -59,7 +59,7 @@ def test_constructor_nonhashable_names():
         codes=[[0, 0, 1, 1], [0, 1, 0, 1]],
         names=("foo", "bar"),
     )
-    renamed = [["foor"], ["barr"]]
+    renamed = [["fooo"], ["barr"]]
     with pytest.raises(TypeError, match=msg):
         mi.rename(names=renamed)
 
@@ -203,15 +203,15 @@ def test_from_arrays_tuples(idx):
     [
         (
             pd.period_range("2011-01-01", freq="D", periods=3),
-            pd.period_range("2015-01-01", freq="H", periods=3),
+            pd.period_range("2015-01-01", freq="h", periods=3),
         ),
         (
             date_range("2015-01-01 10:00", freq="D", periods=3, tz="US/Eastern"),
-            date_range("2015-01-01 10:00", freq="H", periods=3, tz="Asia/Tokyo"),
+            date_range("2015-01-01 10:00", freq="h", periods=3, tz="Asia/Tokyo"),
         ),
         (
             pd.timedelta_range("1 days", freq="D", periods=3),
-            pd.timedelta_range("2 hours", freq="H", periods=3),
+            pd.timedelta_range("2 hours", freq="h", periods=3),
         ),
     ],
 )
@@ -229,7 +229,7 @@ def test_from_arrays_index_series_period_datetimetz_and_timedelta(idx1, idx2):
 
 def test_from_arrays_index_datetimelike_mixed():
     idx1 = date_range("2015-01-01 10:00", freq="D", periods=3, tz="US/Eastern")
-    idx2 = date_range("2015-01-01 10:00", freq="H", periods=3)
+    idx2 = date_range("2015-01-01 10:00", freq="h", periods=3)
     idx3 = pd.timedelta_range("1 days", freq="D", periods=3)
     idx4 = pd.period_range("2011-01-01", freq="D", periods=3)
 
@@ -497,7 +497,6 @@ def test_from_product_index_series_categorical(ordered, f):
 
 
 def test_from_product():
-
     first = ["foo", "bar", "buz"]
     second = ["a", "b", "c"]
     names = ["first", "second"]
@@ -596,7 +595,6 @@ def test_from_product_readonly():
 
 
 def test_create_index_existing_name(idx):
-
     # GH11193, when an existing index is passed, and a new name is not
     # specified, the new index should inherit the previous object name
     index = idx
@@ -650,7 +648,7 @@ def test_from_frame():
     tm.assert_index_equal(expected, result)
 
 
-@pytest.mark.skipif(pa_version_under1p01, reason="Import Problem")
+@pytest.mark.skipif(pa_version_under7p0, reason="minimum pyarrow not installed")
 def test_from_frame_missing_values_multiIndex():
     # GH 39984
     import pyarrow as pa
@@ -780,7 +778,7 @@ def test_datetimeindex():
     idx1 = pd.DatetimeIndex(
         ["2013-04-01 9:00", "2013-04-02 9:00", "2013-04-03 9:00"] * 2, tz="Asia/Tokyo"
     )
-    idx2 = date_range("2010/01/01", periods=6, freq="M", tz="US/Eastern")
+    idx2 = date_range("2010/01/01", periods=6, freq="ME", tz="US/Eastern")
     idx = MultiIndex.from_arrays([idx1, idx2])
 
     expected1 = pd.DatetimeIndex(
@@ -809,7 +807,6 @@ def test_datetimeindex():
 
 
 def test_constructor_with_tz():
-
     index = pd.DatetimeIndex(
         ["2013/01/01 09:00", "2013/01/02 09:00"], name="dt1", tz="US/Pacific"
     )

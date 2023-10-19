@@ -2,31 +2,13 @@ import numpy as np
 import pytest
 
 import pandas as pd
-from pandas import RangeIndex
+from pandas import (
+    Index,
+    RangeIndex,
+)
 import pandas._testing as tm
-from pandas.core.api import (
-    Float64Index,
-    Int64Index,
-    UInt64Index,
-)
-from pandas.core.computation import expressions as expr
 
 
-@pytest.fixture(
-    autouse=True, scope="module", params=[0, 1000000], ids=["numexpr", "python"]
-)
-def switch_numexpr_min_elements(request):
-    _MIN_ELEMENTS = expr._MIN_ELEMENTS
-    expr._MIN_ELEMENTS = request.param
-    yield request.param
-    expr._MIN_ELEMENTS = _MIN_ELEMENTS
-
-
-# ------------------------------------------------------------------
-
-# doctest with +SKIP for one fixture fails during setup with
-# 'DoctestItem' object has no attribute 'callspec'
-# due to switch_numexpr_min_elements fixture
 @pytest.fixture(params=[1, np.array(1, dtype=np.int64)])
 def one(request):
     """
@@ -39,33 +21,28 @@ def one(request):
 
     Examples
     --------
-    dti = pd.date_range('2016-01-01', periods=2, freq='H')
+    dti = pd.date_range('2016-01-01', periods=2, freq='h')
     dti
     DatetimeIndex(['2016-01-01 00:00:00', '2016-01-01 01:00:00'],
-    dtype='datetime64[ns]', freq='H')
+    dtype='datetime64[ns]', freq='h')
     dti + one
     DatetimeIndex(['2016-01-01 01:00:00', '2016-01-01 02:00:00'],
-    dtype='datetime64[ns]', freq='H')
+    dtype='datetime64[ns]', freq='h')
     """
     return request.param
 
 
 zeros = [
     box_cls([0] * 5, dtype=dtype)
-    for box_cls in [pd.Index, np.array, pd.array]
+    for box_cls in [Index, np.array, pd.array]
     for dtype in [np.int64, np.uint64, np.float64]
 ]
-zeros.extend(
-    [box_cls([-0.0] * 5, dtype=np.float64) for box_cls in [pd.Index, np.array]]
-)
+zeros.extend([box_cls([-0.0] * 5, dtype=np.float64) for box_cls in [Index, np.array]])
 zeros.extend([np.array(0, dtype=dtype) for dtype in [np.int64, np.uint64, np.float64]])
 zeros.extend([np.array(-0.0, dtype=np.float64)])
 zeros.extend([0, 0.0, -0.0])
 
 
-# doctest with +SKIP for zero fixture fails during setup with
-# 'DoctestItem' object has no attribute 'callspec'
-# due to switch_numexpr_min_elements fixture
 @pytest.fixture(params=zeros)
 def zero(request):
     """
@@ -81,7 +58,7 @@ def zero(request):
     --------
     arr = RangeIndex(5)
     arr / zeros
-    Float64Index([nan, inf, inf, inf, inf], dtype='float64')
+    Index([nan, inf, inf, inf, inf], dtype='float64')
     """
     return request.param
 
@@ -92,9 +69,10 @@ def zero(request):
 
 @pytest.fixture(
     params=[
-        Float64Index(np.arange(5, dtype="float64")),
-        Int64Index(np.arange(5, dtype="int64")),
-        UInt64Index(np.arange(5, dtype="uint64")),
+        # TODO: add more  dtypes here
+        Index(np.arange(5, dtype="float64")),
+        Index(np.arange(5, dtype="int64")),
+        Index(np.arange(5, dtype="uint64")),
         RangeIndex(5),
     ],
     ids=lambda x: type(x).__name__,
@@ -222,7 +200,7 @@ def mismatched_freq(request):
 
 
 @pytest.fixture(
-    params=[pd.Index, pd.Series, tm.to_array, np.array, list], ids=lambda x: x.__name__
+    params=[Index, pd.Series, tm.to_array, np.array, list], ids=lambda x: x.__name__
 )
 def box_1d_array(request):
     """

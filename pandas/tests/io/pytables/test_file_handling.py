@@ -3,7 +3,12 @@ import os
 import numpy as np
 import pytest
 
-from pandas.compat import is_platform_little_endian
+from pandas.compat import (
+    PY311,
+    is_ci_environment,
+    is_platform_linux,
+    is_platform_little_endian,
+)
 from pandas.errors import (
     ClosedFileError,
     PossibleDataLossError,
@@ -22,7 +27,7 @@ from pandas.tests.io.pytables.common import (
     tables,
 )
 
-from pandas.io import pytables as pytables
+from pandas.io import pytables
 from pandas.io.pytables import Term
 
 pytestmark = pytest.mark.single_cpu
@@ -30,7 +35,6 @@ pytestmark = pytest.mark.single_cpu
 
 @pytest.mark.parametrize("mode", ["r", "r+", "a", "w"])
 def test_mode(setup_path, tmp_path, mode):
-
     df = tm.makeTimeDataFrame()
     msg = r"[\S]* does not exist"
     path = tmp_path / setup_path
@@ -41,9 +45,8 @@ def test_mode(setup_path, tmp_path, mode):
             HDFStore(path, mode=mode)
 
     else:
-        store = HDFStore(path, mode=mode)
-        assert store._handle.mode == mode
-        store.close()
+        with HDFStore(path, mode=mode) as store:
+            assert store._handle.mode == mode
 
     path = tmp_path / setup_path
 
@@ -61,10 +64,10 @@ def test_mode(setup_path, tmp_path, mode):
     # conv write
     if mode in ["r", "r+"]:
         with pytest.raises(OSError, match=msg):
-            df.to_hdf(path, "df", mode=mode)
-        df.to_hdf(path, "df", mode="w")
+            df.to_hdf(path, key="df", mode=mode)
+        df.to_hdf(path, key="df", mode="w")
     else:
-        df.to_hdf(path, "df", mode=mode)
+        df.to_hdf(path, key="df", mode=mode)
 
     # conv read
     if mode in ["w"]:
@@ -83,13 +86,12 @@ def test_default_mode(tmp_path, setup_path):
     # read_hdf uses default mode
     df = tm.makeTimeDataFrame()
     path = tmp_path / setup_path
-    df.to_hdf(path, "df", mode="w")
+    df.to_hdf(path, key="df", mode="w")
     result = read_hdf(path, "df")
     tm.assert_frame_equal(result, df)
 
 
 def test_reopen_handle(tmp_path, setup_path):
-
     path = tmp_path / setup_path
 
     store = HDFStore(path, mode="a")
@@ -142,9 +144,7 @@ def test_reopen_handle(tmp_path, setup_path):
 
 
 def test_open_args(setup_path):
-
     with tm.ensure_clean(setup_path) as path:
-
         df = tm.makeDataFrame()
 
         # create an in memory store
@@ -164,7 +164,6 @@ def test_open_args(setup_path):
 
 
 def test_flush(setup_path):
-
     with ensure_clean_store(setup_path) as store:
         store["a"] = tm.makeTimeSeries()
         store.flush()
@@ -178,7 +177,7 @@ def test_complibs_default_settings(tmp_path, setup_path):
     # Set complevel and check if complib is automatically set to
     # default value
     tmpfile = tmp_path / setup_path
-    df.to_hdf(tmpfile, "df", complevel=9)
+    df.to_hdf(tmpfile, key="df", complevel=9)
     result = read_hdf(tmpfile, "df")
     tm.assert_frame_equal(result, df)
 
@@ -189,7 +188,7 @@ def test_complibs_default_settings(tmp_path, setup_path):
 
     # Set complib and check to see if compression is disabled
     tmpfile = tmp_path / setup_path
-    df.to_hdf(tmpfile, "df", complib="zlib")
+    df.to_hdf(tmpfile, key="df", complib="zlib")
     result = read_hdf(tmpfile, "df")
     tm.assert_frame_equal(result, df)
 
@@ -200,7 +199,7 @@ def test_complibs_default_settings(tmp_path, setup_path):
 
     # Check if not setting complib or complevel results in no compression
     tmpfile = tmp_path / setup_path
-    df.to_hdf(tmpfile, "df")
+    df.to_hdf(tmpfile, key="df")
     result = read_hdf(tmpfile, "df")
     tm.assert_frame_equal(result, df)
 
@@ -228,48 +227,50 @@ def test_complibs_default_settings_override(tmp_path, setup_path):
             assert node.filters.complib == "blosc"
 
 
-def test_complibs(tmp_path, setup_path):
+@pytest.mark.parametrize("lvl", range(10))
+@pytest.mark.parametrize("lib", tables.filters.all_complibs)
+@pytest.mark.filterwarnings("ignore:object name is not a valid")
+@pytest.mark.skipif(
+    not PY311 and is_ci_environment() and is_platform_linux(),
+    reason="Segfaulting in a CI environment"
+    # with xfail, would sometimes raise UnicodeDecodeError
+    # invalid state byte
+)
+def test_complibs(tmp_path, lvl, lib):
     # GH14478
-    df = tm.makeDataFrame()
+    df = DataFrame(
+        np.ones((30, 4)), columns=list("ABCD"), index=np.arange(30).astype(np.str_)
+    )
 
-    # Building list of all complibs and complevels tuples
-    all_complibs = tables.filters.all_complibs
     # Remove lzo if its not available on this platform
     if not tables.which_lib_version("lzo"):
-        all_complibs.remove("lzo")
+        pytest.skip("lzo not available")
     # Remove bzip2 if its not available on this platform
     if not tables.which_lib_version("bzip2"):
-        all_complibs.remove("bzip2")
+        pytest.skip("bzip2 not available")
 
-    all_levels = range(0, 10)
-    all_tests = [(lib, lvl) for lib in all_complibs for lvl in all_levels]
+    tmpfile = tmp_path / f"{lvl}_{lib}.h5"
+    gname = f"{lvl}_{lib}"
 
-    for (lib, lvl) in all_tests:
-        tmpfile = tmp_path / setup_path
-        gname = "foo"
+    # Write and read file to see if data is consistent
+    df.to_hdf(tmpfile, key=gname, complib=lib, complevel=lvl)
+    result = read_hdf(tmpfile, gname)
+    tm.assert_frame_equal(result, df)
 
-        # Write and read file to see if data is consistent
-        df.to_hdf(tmpfile, gname, complib=lib, complevel=lvl)
-        result = read_hdf(tmpfile, gname)
-        tm.assert_frame_equal(result, df)
-
-        # Open file and check metadata
-        # for correct amount of compression
-        h5table = tables.open_file(tmpfile, mode="r")
+    # Open file and check metadata for correct amount of compression
+    with tables.open_file(tmpfile, mode="r") as h5table:
         for node in h5table.walk_nodes(where="/" + gname, classname="Leaf"):
             assert node.filters.complevel == lvl
             if lvl == 0:
                 assert node.filters.complib is None
             else:
                 assert node.filters.complib == lib
-        h5table.close()
 
 
 @pytest.mark.skipif(
     not is_platform_little_endian(), reason="reason platform is not little endian"
 )
 def test_encoding(setup_path):
-
     with ensure_clean_store(setup_path) as store:
         df = DataFrame({"A": "foo", "B": "bar"}, index=range(5))
         df.loc[2, "A"] = np.nan
@@ -307,7 +308,7 @@ def test_latin_encoding(tmp_path, setup_path, dtype, val):
     ser = Series(val, dtype=dtype)
 
     store = tmp_path / setup_path
-    ser.to_hdf(store, key, format="table", encoding=enc, nan_rep=nan_rep)
+    ser.to_hdf(store, key=key, format="table", encoding=enc, nan_rep=nan_rep)
     retr = read_hdf(store, key)
 
     s_nan = ser.replace(nan_rep, np.nan)
@@ -321,7 +322,7 @@ def test_multiple_open_close(tmp_path, setup_path):
     path = tmp_path / setup_path
 
     df = tm.makeDataFrame()
-    df.to_hdf(path, "df", mode="w", format="table")
+    df.to_hdf(path, key="df", mode="w", format="table")
 
     # single
     store = HDFStore(path)
@@ -346,7 +347,6 @@ def test_multiple_open_close(tmp_path, setup_path):
 
         store1.close()
     else:
-
         # multiples
         store1 = HDFStore(path)
         store2 = HDFStore(path)
@@ -399,7 +399,7 @@ def test_multiple_open_close(tmp_path, setup_path):
     path = tmp_path / setup_path
 
     df = tm.makeDataFrame()
-    df.to_hdf(path, "df", mode="w", format="table")
+    df.to_hdf(path, key="df", mode="w", format="table")
 
     store = HDFStore(path)
     store.close()

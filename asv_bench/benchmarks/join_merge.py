@@ -4,6 +4,7 @@ import numpy as np
 
 from pandas import (
     DataFrame,
+    Index,
     MultiIndex,
     Series,
     array,
@@ -21,28 +22,7 @@ except ImportError:
     from pandas import ordered_merge as merge_ordered
 
 
-class Append:
-    def setup(self):
-        self.df1 = DataFrame(np.random.randn(10000, 4), columns=["A", "B", "C", "D"])
-        self.df2 = self.df1.copy()
-        self.df2.index = np.arange(10000, 20000)
-        self.mdf1 = self.df1.copy()
-        self.mdf1["obj1"] = "bar"
-        self.mdf1["obj2"] = "bar"
-        self.mdf1["int1"] = 5
-        self.mdf1 = self.mdf1._consolidate()
-        self.mdf2 = self.mdf1.copy()
-        self.mdf2.index = self.df2.index
-
-    def time_append_homogenous(self):
-        self.df1.append(self.df2)
-
-    def time_append_mixed(self):
-        self.mdf1.append(self.mdf2)
-
-
 class Concat:
-
     params = [0, 1]
     param_names = ["axis"]
 
@@ -75,7 +55,6 @@ class Concat:
 
 
 class ConcatDataFrames:
-
     params = ([0, 1], [True, False])
     param_names = ["axis", "ignore_index"]
 
@@ -92,8 +71,53 @@ class ConcatDataFrames:
         concat(self.frame_f, axis=axis, ignore_index=ignore_index)
 
 
-class Join:
+class ConcatIndexDtype:
+    params = (
+        [
+            "datetime64[ns]",
+            "int64",
+            "Int64",
+            "int64[pyarrow]",
+            "string[python]",
+            "string[pyarrow]",
+        ],
+        ["monotonic", "non_monotonic", "has_na"],
+        [0, 1],
+        [True, False],
+    )
+    param_names = ["dtype", "structure", "axis", "sort"]
 
+    def setup(self, dtype, structure, axis, sort):
+        N = 10_000
+        if dtype == "datetime64[ns]":
+            vals = date_range("1970-01-01", periods=N)
+        elif dtype in ("int64", "Int64", "int64[pyarrow]"):
+            vals = np.arange(N, dtype=np.int64)
+        elif dtype in ("string[python]", "string[pyarrow]"):
+            vals = tm.makeStringIndex(N)
+        else:
+            raise NotImplementedError
+
+        idx = Index(vals, dtype=dtype)
+
+        if structure == "monotonic":
+            idx = idx.sort_values()
+        elif structure == "non_monotonic":
+            idx = idx[::-1]
+        elif structure == "has_na":
+            if not idx._can_hold_na:
+                raise NotImplementedError
+            idx = Index([None], dtype=dtype).append(idx)
+        else:
+            raise NotImplementedError
+
+        self.series = [Series(i, idx[:-i]) for i in range(1, 6)]
+
+    def time_concat_series(self, dtype, structure, axis, sort):
+        concat(self.series, axis=axis, sort=sort)
+
+
+class Join:
     params = [True, False]
     param_names = ["sort"]
 
@@ -147,12 +171,12 @@ class Join:
 
 class JoinIndex:
     def setup(self):
-        N = 50000
+        N = 5000
         self.left = DataFrame(
-            np.random.randint(1, N / 500, (N, 2)), columns=["jim", "joe"]
+            np.random.randint(1, N / 50, (N, 2)), columns=["jim", "joe"]
         )
         self.right = DataFrame(
-            np.random.randint(1, N / 500, (N, 2)), columns=["jolie", "jolia"]
+            np.random.randint(1, N / 50, (N, 2)), columns=["jolie", "jolia"]
         ).set_index("jolie")
 
     def time_left_outer_join_index(self):
@@ -188,7 +212,7 @@ class JoinNonUnique:
     # outer join of non-unique
     # GH 6329
     def setup(self):
-        date_index = date_range("01-Jan-2013", "23-Jan-2013", freq="T")
+        date_index = date_range("01-Jan-2013", "23-Jan-2013", freq="min")
         daily_dates = date_index.to_period("D").to_timestamp("S", "S")
         self.fracofday = date_index.values - daily_dates.values
         self.fracofday = self.fracofday.astype("timedelta64[ns]")
@@ -202,7 +226,6 @@ class JoinNonUnique:
 
 
 class Merge:
-
     params = [True, False]
     param_names = ["sort"]
 
@@ -252,8 +275,38 @@ class Merge:
         merge(self.left.loc[:2000], self.right.loc[:2000], how="cross", sort=sort)
 
 
-class I8Merge:
+class MergeEA:
+    params = [
+        "Int64",
+        "Int32",
+        "Int16",
+        "UInt64",
+        "UInt32",
+        "UInt16",
+        "Float64",
+        "Float32",
+    ]
+    param_names = ["dtype"]
 
+    def setup(self, dtype):
+        N = 10_000
+        indices = np.arange(1, N)
+        key = np.tile(indices[:8000], 10)
+        self.left = DataFrame(
+            {"key": Series(key, dtype=dtype), "value": np.random.randn(80000)}
+        )
+        self.right = DataFrame(
+            {
+                "key": Series(indices[2000:], dtype=dtype),
+                "value2": np.random.randn(7999),
+            }
+        )
+
+    def time_merge(self, dtype):
+        merge(self.left, self.right)
+
+
+class I8Merge:
     params = ["inner", "outer", "left", "right"]
     param_names = ["how"]
 
@@ -271,18 +324,50 @@ class I8Merge:
         merge(self.left, self.right, how=how)
 
 
+class MergeDatetime:
+    params = [
+        [
+            ("ns", "ns"),
+            ("ms", "ms"),
+            ("ns", "ms"),
+        ],
+        [None, "Europe/Brussels"],
+    ]
+    param_names = ["units", "tz"]
+
+    def setup(self, units, tz):
+        unit_left, unit_right = units
+        N = 10_000
+        keys = Series(date_range("2012-01-01", freq="min", periods=N, tz=tz))
+        self.left = DataFrame(
+            {
+                "key": keys.sample(N * 10, replace=True).dt.as_unit(unit_left),
+                "value1": np.random.randn(N * 10),
+            }
+        )
+        self.right = DataFrame(
+            {
+                "key": keys[:8000].dt.as_unit(unit_right),
+                "value2": np.random.randn(8000),
+            }
+        )
+
+    def time_merge(self, units, tz):
+        merge(self.left, self.right)
+
+
 class MergeCategoricals:
     def setup(self):
         self.left_object = DataFrame(
             {
-                "X": np.random.choice(range(0, 10), size=(10000,)),
+                "X": np.random.choice(range(10), size=(10000,)),
                 "Y": np.random.choice(["one", "two", "three"], size=(10000,)),
             }
         )
 
         self.right_object = DataFrame(
             {
-                "X": np.random.choice(range(0, 10), size=(10000,)),
+                "X": np.random.choice(range(10), size=(10000,)),
                 "Z": np.random.choice(["jjj", "kkk", "sss"], size=(10000,)),
             }
         )

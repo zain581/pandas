@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from pandas._libs.tslibs.offsets import delta_to_tick
+from pandas.errors import OutOfBoundsTimedelta
 
 from pandas import (
     Timedelta,
@@ -44,7 +45,7 @@ tick_classes = [Hour, Minute, Second, Milli, Micro, Nano]
 
 
 def test_apply_ticks():
-    result = offsets.Hour(3)._apply(offsets.Hour(4))
+    result = offsets.Hour(3) + offsets.Hour(4)
     exp = offsets.Hour(7)
     assert result == exp
 
@@ -74,7 +75,6 @@ def test_tick_add_sub(cls, n, m):
     expected = cls(n + m)
 
     assert left + right == expected
-    assert left._apply(right) == expected
 
     expected = cls(n - m)
     assert left - right == expected
@@ -90,11 +90,10 @@ def test_tick_equality(cls, n, m):
     left = cls(n)
     right = cls(m)
     assert left != right
-    assert not (left == right)
 
     right = cls(n)
     assert left == right
-    assert not (left != right)
+    assert not left != right
 
     if n != 0:
         assert cls(n) != cls(-n)
@@ -239,6 +238,14 @@ def test_tick_addition(kls, expected):
         assert result == expected
 
 
+def test_tick_delta_overflow():
+    # GH#55503 raise OutOfBoundsTimedelta, not OverflowError
+    tick = offsets.Day(10**9)
+    msg = "Cannot cast 1000000000 days 00:00:00 to unit='ns' without overflow"
+    with pytest.raises(OutOfBoundsTimedelta, match=msg):
+        tick.delta
+
+
 @pytest.mark.parametrize("cls", tick_classes)
 def test_tick_division(cls):
     off = cls(10)
@@ -259,7 +266,7 @@ def test_tick_division(cls):
         assert not isinstance(result, cls)
         assert result.delta == off.delta / 1000
 
-    if cls._nanos_inc < Timedelta(seconds=1).value:
+    if cls._nanos_inc < Timedelta(seconds=1)._value:
         # Case where we end up with a bigger class
         result = off / 0.001
         assert isinstance(result, offsets.Tick)

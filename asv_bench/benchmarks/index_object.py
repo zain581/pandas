@@ -4,7 +4,6 @@ import numpy as np
 
 from pandas import (
     DatetimeIndex,
-    Float64Index,
     Index,
     IntervalIndex,
     MultiIndex,
@@ -17,7 +16,6 @@ from .pandas_vb_common import tm
 
 
 class SetOperations:
-
     params = (
         ["monotonic", "non_monotonic"],
         ["datetime", "date_string", "int", "strings", "ea_int"],
@@ -27,7 +25,7 @@ class SetOperations:
 
     def setup(self, index_structure, dtype, method):
         N = 10**5
-        dates_left = date_range("1/1/2000", periods=N, freq="T")
+        dates_left = date_range("1/1/2000", periods=N, freq="min")
         fmt = "%Y-%m-%d %H:%M:%S"
         date_str_left = Index(dates_left.strftime(fmt))
         int_left = Index(np.arange(N))
@@ -126,7 +124,6 @@ class IndexEquals:
 
 class IndexAppend:
     def setup(self):
-
         N = 10_000
         self.range_idx = RangeIndex(0, 100)
         self.int_idx = self.range_idx.astype(int)
@@ -153,7 +150,6 @@ class IndexAppend:
 
 
 class Indexing:
-
     params = ["String", "Float", "Int"]
     param_names = ["dtype"]
 
@@ -202,8 +198,8 @@ class Float64IndexMethod:
     # GH 13166
     def setup(self):
         N = 100_000
-        a = np.arange(N)
-        self.ind = Float64Index(a * 4.8000000418824129e-08)
+        a = np.arange(N, dtype=np.float64)
+        self.ind = Index(a * 4.8000000418824129e-08)
 
     def time_get_loc(self):
         self.ind.get_loc(0)

@@ -189,7 +189,7 @@ _encoding_seps = ["", "-", "_"]
 _encoding_prefixes = ["utf", "UTF"]
 
 _encoding_fmts = [
-    f"{prefix}{sep}" + "{0}" for sep in _encoding_seps for prefix in _encoding_prefixes
+    f"{prefix}{sep}{{0}}" for sep in _encoding_seps for prefix in _encoding_prefixes
 ]
 
 
@@ -278,7 +278,7 @@ def pyarrow_xfail(request):
         return
     if parser.engine == "pyarrow":
         mark = pytest.mark.xfail(reason="pyarrow doesn't support this.")
-        request.node.add_marker(mark)
+        request.applymarker(mark)
 
 
 @pytest.fixture

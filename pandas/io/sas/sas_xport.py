@@ -11,18 +11,12 @@ from __future__ import annotations
 
 from collections import abc
 from datetime import datetime
-import inspect
 import struct
+from typing import TYPE_CHECKING
 import warnings
 
 import numpy as np
 
-from pandas._typing import (
-    CompressionOptions,
-    DatetimeNaTType,
-    FilePath,
-    ReadBuffer,
-)
 from pandas.util._decorators import Appender
 from pandas.util._exceptions import find_stack_level
 
@@ -31,6 +25,13 @@ import pandas as pd
 from pandas.io.common import get_handle
 from pandas.io.sas.sasreader import ReaderBase
 
+if TYPE_CHECKING:
+    from pandas._typing import (
+        CompressionOptions,
+        DatetimeNaTType,
+        FilePath,
+        ReadBuffer,
+    )
 _correct_line1 = (
     "HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!"
     "000000000000000000000000000000  "
@@ -258,10 +259,9 @@ class XportReader(ReaderBase, abc.Iterator):
         filepath_or_buffer: FilePath | ReadBuffer[bytes],
         index=None,
         encoding: str | None = "ISO-8859-1",
-        chunksize=None,
+        chunksize: int | None = None,
         compression: CompressionOptions = "infer",
     ) -> None:
-
         self._encoding = encoding
         self._lines_read = 0
         self._index = index
@@ -416,7 +416,7 @@ class XportReader(ReaderBase, abc.Iterator):
         if total_records_length % 80 != 0:
             warnings.warn(
                 "xport file may be corrupted.",
-                stacklevel=find_stack_level(inspect.currentframe()),
+                stacklevel=find_stack_level(),
             )
 
         if self.record_length > 80:
@@ -439,7 +439,7 @@ class XportReader(ReaderBase, abc.Iterator):
 
         return (total_records_length - tail_pad) // self.record_length
 
-    def get_chunk(self, size=None) -> pd.DataFrame:
+    def get_chunk(self, size: int | None = None) -> pd.DataFrame:
         """
         Reads lines from Xport file and returns as dataframe
 
@@ -469,7 +469,6 @@ class XportReader(ReaderBase, abc.Iterator):
 
     @Appender(_read_method_doc)
     def read(self, nrows: int | None = None) -> pd.DataFrame:
-
         if nrows is None:
             nrows = self.nobs
 

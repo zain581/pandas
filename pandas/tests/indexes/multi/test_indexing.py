@@ -37,12 +37,12 @@ class TestSliceLocs:
 
     def test_slice_locs(self):
         df = tm.makeTimeDataFrame()
-        stacked = df.stack()
+        stacked = df.stack(future_stack=True)
         idx = stacked.index
 
         slob = slice(*idx.slice_locs(df.index[5], df.index[15]))
         sliced = stacked[slob]
-        expected = df[5:16].stack()
+        expected = df[5:16].stack(future_stack=True)
         tm.assert_almost_equal(sliced.values, expected.values)
 
         slob = slice(
@@ -52,19 +52,19 @@ class TestSliceLocs:
             )
         )
         sliced = stacked[slob]
-        expected = df[6:15].stack()
+        expected = df[6:15].stack(future_stack=True)
         tm.assert_almost_equal(sliced.values, expected.values)
 
     def test_slice_locs_with_type_mismatch(self):
         df = tm.makeTimeDataFrame()
-        stacked = df.stack()
+        stacked = df.stack(future_stack=True)
         idx = stacked.index
         with pytest.raises(TypeError, match="^Level type mismatch"):
             idx.slice_locs((1, 3))
         with pytest.raises(TypeError, match="^Level type mismatch"):
             idx.slice_locs(df.index[5] + timedelta(seconds=30), (5, 2))
         df = tm.makeCustomDataframe(5, 5)
-        stacked = df.stack()
+        stacked = df.stack(future_stack=True)
         idx = stacked.index
         with pytest.raises(TypeError, match="^Level type mismatch"):
             idx.slice_locs(timedelta(seconds=30))
@@ -162,6 +162,34 @@ class TestPutmask:
         expected = MultiIndex.from_tuples([right[0], right[1], left[2]])
         tm.assert_index_equal(result, expected)
 
+    def test_putmask_keep_dtype(self, any_numeric_ea_dtype):
+        # GH#49830
+        midx = MultiIndex.from_arrays(
+            [pd.Series([1, 2, 3], dtype=any_numeric_ea_dtype), [10, 11, 12]]
+        )
+        midx2 = MultiIndex.from_arrays(
+            [pd.Series([5, 6, 7], dtype=any_numeric_ea_dtype), [-1, -2, -3]]
+        )
+        result = midx.putmask([True, False, False], midx2)
+        expected = MultiIndex.from_arrays(
+            [pd.Series([5, 2, 3], dtype=any_numeric_ea_dtype), [-1, 11, 12]]
+        )
+        tm.assert_index_equal(result, expected)
+
+    def test_putmask_keep_dtype_shorter_value(self, any_numeric_ea_dtype):
+        # GH#49830
+        midx = MultiIndex.from_arrays(
+            [pd.Series([1, 2, 3], dtype=any_numeric_ea_dtype), [10, 11, 12]]
+        )
+        midx2 = MultiIndex.from_arrays(
+            [pd.Series([5], dtype=any_numeric_ea_dtype), [-1]]
+        )
+        result = midx.putmask([True, False, False], midx2)
+        expected = MultiIndex.from_arrays(
+            [pd.Series([5, 2, 3], dtype=any_numeric_ea_dtype), [-1, 11, 12]]
+        )
+        tm.assert_index_equal(result, expected)
+
 
 class TestGetIndexer:
     def test_get_indexer(self):
@@ -233,7 +261,7 @@ class TestGetIndexer:
         midx = MultiIndex.from_product(
             [
                 Categorical(["a", "b", "c"]),
-                Categorical(date_range("2012-01-01", periods=3, freq="H")),
+                Categorical(date_range("2012-01-01", periods=3, freq="h")),
             ]
         )
         result = midx.get_indexer(midx)
@@ -313,6 +341,19 @@ class TestGetIndexer:
         pad_indexer = mult_idx_1.get_indexer(mult_idx_2, method="ffill")
         expected = np.array([4, 6, 7], dtype=pad_indexer.dtype)
         tm.assert_almost_equal(expected, pad_indexer)
+
+    @pytest.mark.parametrize("method", ["pad", "ffill", "backfill", "bfill", "nearest"])
+    def test_get_indexer_methods_raise_for_non_monotonic(self, method):
+        # 53452
+        mi = MultiIndex.from_arrays([[0, 4, 2], [0, 4, 2]])
+        if method == "nearest":
+            err = NotImplementedError
+            msg = "not implemented yet for MultiIndex"
+        else:
+            err = ValueError
+            msg = "index must be monotonic increasing or decreasing"
+        with pytest.raises(err, match=msg):
+            mi.get_indexer([(1, 1)], method=method)
 
     def test_get_indexer_three_or_more_levels(self):
         # https://github.com/pandas-dev/pandas/issues/29896
@@ -471,6 +512,16 @@ class TestGetIndexer:
         with pytest.raises(ValueError, match=msg):
             mi.get_indexer(mi[:-1], tolerance="piano")
 
+    def test_get_indexer_nan(self):
+        # GH#37222
+        idx1 = MultiIndex.from_product([["A"], [1.0, 2.0]], names=["id1", "id2"])
+        idx2 = MultiIndex.from_product([["A"], [np.nan, 2.0]], names=["id1", "id2"])
+        expected = np.array([-1, 1])
+        result = idx2.get_indexer(idx1)
+        tm.assert_numpy_array_equal(result, expected, check_dtype=False)
+        result = idx1.get_indexer(idx2)
+        tm.assert_numpy_array_equal(result, expected, check_dtype=False)
+
 
 def test_getitem(idx):
     # scalar
@@ -527,14 +578,10 @@ class TestGetLoc:
     def test_get_loc(self, idx):
         assert idx.get_loc(("foo", "two")) == 1
         assert idx.get_loc(("baz", "two")) == 3
-        with pytest.raises(KeyError, match=r"^10$"):
+        with pytest.raises(KeyError, match=r"^\('bar', 'two'\)$"):
             idx.get_loc(("bar", "two"))
         with pytest.raises(KeyError, match=r"^'quux'$"):
             idx.get_loc("quux")
-
-        msg = "only the default get_loc method is currently supported for MultiIndex"
-        with pytest.raises(NotImplementedError, match=msg):
-            idx.get_loc("foo", method="nearest")
 
         # 3 levels
         index = MultiIndex(
@@ -800,14 +847,14 @@ class TestContains:
     def test_large_mi_contains(self):
         # GH#10645
         result = MultiIndex.from_arrays([range(10**6), range(10**6)])
-        assert not (10**6, 0) in result
+        assert (10**6, 0) not in result
 
 
 def test_timestamp_multiindex_indexer():
     # https://github.com/pandas-dev/pandas/issues/26944
     idx = MultiIndex.from_product(
         [
-            date_range("2019-01-01T00:15:33", periods=100, freq="H", name="date"),
+            date_range("2019-01-01T00:15:33", periods=100, freq="h", name="date"),
             ["x"],
             [3],
         ]
@@ -819,7 +866,7 @@ def test_timestamp_multiindex_indexer():
             date_range(
                 start="2019-01-02T00:15:33",
                 end="2019-01-05T03:15:33",
-                freq="H",
+                freq="h",
                 name="date",
             ),
             ["x"],
@@ -841,8 +888,7 @@ def test_timestamp_multiindex_indexer():
 def test_get_slice_bound_with_missing_value(index_arr, expected, target, algo):
     # issue 19132
     idx = MultiIndex.from_arrays(index_arr)
-    with tm.assert_produces_warning(FutureWarning, match="'kind' argument"):
-        result = idx.get_slice_bound(target, side=algo, kind="loc")
+    result = idx.get_slice_bound(target, side=algo)
     assert result == expected
 
 
@@ -884,9 +930,9 @@ def test_pyint_engine():
     # keys would collide; if truncating the last levels, the fifth and
     # sixth; if rotating bits rather than shifting, the third and fifth.
 
-    for idx in range(len(keys)):
+    for idx, key_value in enumerate(keys):
         index = MultiIndex.from_tuples(keys)
-        assert index.get_loc(keys[idx]) == idx
+        assert index.get_loc(key_value) == idx
 
         expected = np.arange(idx + 1, dtype=np.intp)
         result = index.get_indexer([keys[i] for i in expected])
@@ -923,4 +969,18 @@ def test_get_locs_reordering(keys, expected):
     )
     result = idx.get_locs(keys)
     expected = np.array(expected, dtype=np.intp)
+    tm.assert_numpy_array_equal(result, expected)
+
+
+def test_get_indexer_for_multiindex_with_nans(nulls_fixture):
+    # GH37222
+    idx1 = MultiIndex.from_product([["A"], [1.0, 2.0]], names=["id1", "id2"])
+    idx2 = MultiIndex.from_product([["A"], [nulls_fixture, 2.0]], names=["id1", "id2"])
+
+    result = idx2.get_indexer(idx1)
+    expected = np.array([-1, 1], dtype=np.intp)
+    tm.assert_numpy_array_equal(result, expected)
+
+    result = idx1.get_indexer(idx2)
+    expected = np.array([-1, 1], dtype=np.intp)
     tm.assert_numpy_array_equal(result, expected)
