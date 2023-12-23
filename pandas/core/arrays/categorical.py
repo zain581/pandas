@@ -2165,7 +2165,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
     # Rendering Methods
 
     def _formatter(self, boxed: bool = False):
-        # Defer to CategoricalFormatter's formatter.
+        # Returning None here will cause format_array to do inference.
         return None
 
     def _repr_categories(self) -> list[str]:
@@ -2570,7 +2570,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
 
         return result
 
-    def isin(self, values) -> npt.NDArray[np.bool_]:
+    def isin(self, values: ArrayLike) -> npt.NDArray[np.bool_]:
         """
         Check whether `values` are contained in Categorical.
 
@@ -2580,7 +2580,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
 
         Parameters
         ----------
-        values : set or list-like
+        values : np.ndarray or ExtensionArray
             The sequence of values to test. Passing in a single string will
             raise a ``TypeError``. Instead, turn a single string into a
             list of one element.
@@ -2611,13 +2611,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         >>> s.isin(['lama'])
         array([ True, False,  True, False,  True, False])
         """
-        if not is_list_like(values):
-            values_type = type(values).__name__
-            raise TypeError(
-                "only list-like objects are allowed to be passed "
-                f"to isin(), you passed a `{values_type}`"
-            )
-        values = sanitize_array(values, None, None)
         null_mask = np.asarray(isna(values))
         code_values = self.categories.get_indexer_for(values)
         code_values = code_values[null_mask | (code_values >= 0)]
@@ -2625,6 +2618,8 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
 
     def _replace(self, *, to_replace, value, inplace: bool = False):
         from pandas import Index
+
+        orig_dtype = self.dtype
 
         inplace = validate_bool_kwarg(inplace, "inplace")
         cat = self if inplace else self.copy()
@@ -2656,6 +2651,17 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         new_dtype = CategoricalDtype(new_categories, ordered=self.dtype.ordered)
         NDArrayBacked.__init__(cat, new_codes, new_dtype)
 
+        if new_dtype != orig_dtype:
+            warnings.warn(
+                # GH#55147
+                "The behavior of Series.replace (and DataFrame.replace) with "
+                "CategoricalDtype is deprecated. In a future version, replace "
+                "will only be used for cases that preserve the categories. "
+                "To change the categories, use ser.cat.rename_categories "
+                "instead.",
+                FutureWarning,
+                stacklevel=find_stack_level(),
+            )
         if not inplace:
             return cat
 
@@ -2701,12 +2707,22 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         dtype = self.dtype
         if how in ["sum", "prod", "cumsum", "cumprod", "skew"]:
             raise TypeError(f"{dtype} type does not support {how} operations")
-        if how in ["min", "max", "rank"] and not dtype.ordered:
+        if how in ["min", "max", "rank", "idxmin", "idxmax"] and not dtype.ordered:
             # raise TypeError instead of NotImplementedError to ensure we
             #  don't go down a group-by-group path, since in the empty-groups
             #  case that would fail to raise
             raise TypeError(f"Cannot perform {how} with non-ordered Categorical")
-        if how not in ["rank", "any", "all", "first", "last", "min", "max"]:
+        if how not in [
+            "rank",
+            "any",
+            "all",
+            "first",
+            "last",
+            "min",
+            "max",
+            "idxmin",
+            "idxmax",
+        ]:
             if kind == "transform":
                 raise TypeError(f"{dtype} type does not support {how} operations")
             raise TypeError(f"{dtype} dtype does not support aggregation '{how}'")
@@ -2716,7 +2732,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         if how == "rank":
             assert self.ordered  # checked earlier
             npvalues = self._ndarray
-        elif how in ["first", "last", "min", "max"]:
+        elif how in ["first", "last", "min", "max", "idxmin", "idxmax"]:
             npvalues = self._ndarray
             result_mask = np.zeros(ngroups, dtype=bool)
         else:
@@ -2878,9 +2894,7 @@ class CategoricalAccessor(PandasDelegate, PandasObject, NoNewAttributesMixin):
         if not isinstance(data.dtype, CategoricalDtype):
             raise AttributeError("Can only use .cat accessor with a 'category' dtype")
 
-    # error: Signature of "_delegate_property_get" incompatible with supertype
-    # "PandasDelegate"
-    def _delegate_property_get(self, name: str):  # type: ignore[override]
+    def _delegate_property_get(self, name: str):
         return getattr(self._parent, name)
 
     # error: Signature of "_delegate_property_set" incompatible with supertype
