@@ -15,7 +15,6 @@ from pandas.core import ops
 
 
 class TestSeriesLogicalOps:
-    @pytest.mark.filterwarnings("ignore:Downcasting object dtype arrays:FutureWarning")
     @pytest.mark.parametrize("bool_op", [operator.and_, operator.or_, operator.xor])
     def test_bool_operators_with_nas(self, bool_op):
         # boolean &, |, ^ should work with object arrays and propagate NAs
@@ -345,9 +344,9 @@ class TestSeriesLogicalOps:
     @pytest.mark.parametrize(
         "op, expected",
         [
-            (ops.rand_, Series([False, False])),
-            (ops.ror_, Series([True, True])),
-            (ops.rxor, Series([True, True])),
+            (ops.rand_, [False, False]),
+            (ops.ror_, [True, True]),
+            (ops.rxor, [True, True]),
         ],
     )
     def test_reverse_ops_with_index(self, op, expected):
@@ -358,6 +357,7 @@ class TestSeriesLogicalOps:
         idx = Index([False, True])
 
         result = op(ser, idx)
+        expected = Series(expected)
         tm.assert_series_equal(result, expected)
 
     def test_logical_ops_label_based(self, using_infer_string):
@@ -396,11 +396,11 @@ class TestSeriesLogicalOps:
         # vs empty
         empty = Series([], dtype=object)
 
-        result = a & empty.copy()
+        result = a & empty
         expected = Series([False, False, False], list("abc"))
         tm.assert_series_equal(result, expected)
 
-        result = a | empty.copy()
+        result = a | empty
         expected = Series([True, True, False], list("abc"))
         tm.assert_series_equal(result, expected)
 

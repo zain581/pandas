@@ -32,8 +32,7 @@ def test_read_with_bad_header(all_parsers):
     msg = r"but only \d+ lines in file"
 
     with pytest.raises(ValueError, match=msg):
-        s = StringIO(",,")
-        parser.read_csv(s, header=[10])
+        parser.read_csv(StringIO(",,"), header=[10])
 
 
 def test_negative_header(all_parsers):
@@ -163,7 +162,7 @@ R_l0_g4,R_l1_g4,R4C0,R4C1,R4C2
             {"index_col": ["foo", "bar"]},
             (
                 "index_col must only contain "
-                "row numbers when specifying "
+                "integers of column positions when specifying "
                 "a multi-index header"
             ),
         ),

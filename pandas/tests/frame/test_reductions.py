@@ -1059,25 +1059,26 @@ class TestDataFrameAnalytics:
     # ----------------------------------------------------------------------
     # Index of max / min
 
-    @pytest.mark.parametrize("skipna", [True, False])
     @pytest.mark.parametrize("axis", [0, 1])
     def test_idxmin(self, float_frame, int_frame, skipna, axis):
         frame = float_frame
         frame.iloc[5:10] = np.nan
         frame.iloc[15:20, -2:] = np.nan
         for df in [frame, int_frame]:
-            warn = None
-            if skipna is False or axis == 1:
-                warn = None if df is int_frame else FutureWarning
-            msg = "The behavior of DataFrame.idxmin with all-NA values"
-            with tm.assert_produces_warning(warn, match=msg):
+            if (not skipna or axis == 1) and df is not int_frame:
+                if axis == 1:
+                    msg = "Encountered all NA values"
+                else:
+                    msg = "Encountered an NA value"
+                with pytest.raises(ValueError, match=msg):
+                    df.idxmin(axis=axis, skipna=skipna)
+                with pytest.raises(ValueError, match=msg):
+                    df.idxmin(axis=axis, skipna=skipna)
+            else:
                 result = df.idxmin(axis=axis, skipna=skipna)
-
-            msg2 = "The behavior of Series.idxmin"
-            with tm.assert_produces_warning(warn, match=msg2):
                 expected = df.apply(Series.idxmin, axis=axis, skipna=skipna)
-            expected = expected.astype(df.index.dtype)
-            tm.assert_series_equal(result, expected)
+                expected = expected.astype(df.index.dtype)
+                tm.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize("axis", [0, 1])
     @pytest.mark.filterwarnings(r"ignore:PeriodDtype\[B\] is deprecated:FutureWarning")
@@ -1108,23 +1109,23 @@ class TestDataFrameAnalytics:
         with pytest.raises(ValueError, match=msg):
             frame.idxmin(axis=2)
 
-    @pytest.mark.parametrize("skipna", [True, False])
     @pytest.mark.parametrize("axis", [0, 1])
     def test_idxmax(self, float_frame, int_frame, skipna, axis):
         frame = float_frame
         frame.iloc[5:10] = np.nan
         frame.iloc[15:20, -2:] = np.nan
         for df in [frame, int_frame]:
-            warn = None
-            if skipna is False or axis == 1:
-                warn = None if df is int_frame else FutureWarning
-            msg = "The behavior of DataFrame.idxmax with all-NA values"
-            with tm.assert_produces_warning(warn, match=msg):
-                result = df.idxmax(axis=axis, skipna=skipna)
+            if (skipna is False or axis == 1) and df is frame:
+                if axis == 1:
+                    msg = "Encountered all NA values"
+                else:
+                    msg = "Encountered an NA value"
+                with pytest.raises(ValueError, match=msg):
+                    df.idxmax(axis=axis, skipna=skipna)
+                return
 
-            msg2 = "The behavior of Series.idxmax"
-            with tm.assert_produces_warning(warn, match=msg2):
-                expected = df.apply(Series.idxmax, axis=axis, skipna=skipna)
+            result = df.idxmax(axis=axis, skipna=skipna)
+            expected = df.apply(Series.idxmax, axis=axis, skipna=skipna)
             expected = expected.astype(df.index.dtype)
             tm.assert_series_equal(result, expected)
 
@@ -1182,10 +1183,7 @@ class TestDataFrameAnalytics:
     def test_idxmax_mixed_dtype(self):
         # don't cast to object, which would raise in nanops
         dti = date_range("2016-01-01", periods=3)
-
-        # Copying dti is needed for ArrayManager otherwise when we set
-        #  df.loc[0, 3] = pd.NaT below it edits dti
-        df = DataFrame({1: [0, 2, 1], 2: range(3)[::-1], 3: dti.copy(deep=True)})
+        df = DataFrame({1: [0, 2, 1], 2: range(3)[::-1], 3: dti})
 
         result = df.idxmax()
         expected = Series([1, 0, 2], index=[1, 2, 3])
@@ -1257,29 +1255,29 @@ class TestDataFrameAnalytics:
     # ----------------------------------------------------------------------
     # Logical reductions
 
-    @pytest.mark.parametrize("opname", ["any", "all"])
     @pytest.mark.parametrize("axis", [0, 1])
     @pytest.mark.parametrize("bool_only", [False, True])
-    def test_any_all_mixed_float(self, opname, axis, bool_only, float_string_frame):
+    def test_any_all_mixed_float(
+        self, all_boolean_reductions, axis, bool_only, float_string_frame
+    ):
         # make sure op works on mixed-type frame
         mixed = float_string_frame
         mixed["_bool_"] = np.random.default_rng(2).standard_normal(len(mixed)) > 0.5
 
-        getattr(mixed, opname)(axis=axis, bool_only=bool_only)
+        getattr(mixed, all_boolean_reductions)(axis=axis, bool_only=bool_only)
 
-    @pytest.mark.parametrize("opname", ["any", "all"])
     @pytest.mark.parametrize("axis", [0, 1])
-    def test_any_all_bool_with_na(self, opname, axis, bool_frame_with_na):
-        getattr(bool_frame_with_na, opname)(axis=axis, bool_only=False)
+    def test_any_all_bool_with_na(
+        self, all_boolean_reductions, axis, bool_frame_with_na
+    ):
+        getattr(bool_frame_with_na, all_boolean_reductions)(axis=axis, bool_only=False)
 
-    @pytest.mark.filterwarnings("ignore:Downcasting object dtype arrays:FutureWarning")
-    @pytest.mark.parametrize("opname", ["any", "all"])
-    def test_any_all_bool_frame(self, opname, bool_frame_with_na):
+    def test_any_all_bool_frame(self, all_boolean_reductions, bool_frame_with_na):
         # GH#12863: numpy gives back non-boolean data for object type
         # so fill NaNs to compare with pandas behavior
         frame = bool_frame_with_na.fillna(True)
-        alternative = getattr(np, opname)
-        f = getattr(frame, opname)
+        alternative = getattr(np, all_boolean_reductions)
+        f = getattr(frame, all_boolean_reductions)
 
         def skipna_wrapper(x):
             nona = x.dropna().values
@@ -1308,9 +1306,9 @@ class TestDataFrameAnalytics:
 
         # all NA case
         all_na = frame * np.nan
-        r0 = getattr(all_na, opname)(axis=0)
-        r1 = getattr(all_na, opname)(axis=1)
-        if opname == "any":
+        r0 = getattr(all_na, all_boolean_reductions)(axis=0)
+        r1 = getattr(all_na, all_boolean_reductions)(axis=1)
+        if all_boolean_reductions == "any":
             assert not r0.any()
             assert not r1.any()
         else:
@@ -1351,10 +1349,8 @@ class TestDataFrameAnalytics:
         assert result is True
 
     @pytest.mark.parametrize("axis", [0, 1])
-    @pytest.mark.parametrize("bool_agg_func", ["any", "all"])
-    @pytest.mark.parametrize("skipna", [True, False])
     def test_any_all_object_dtype(
-        self, axis, bool_agg_func, skipna, using_infer_string
+        self, axis, all_boolean_reductions, skipna, using_infer_string
     ):
         # GH#35450
         df = DataFrame(
@@ -1367,17 +1363,13 @@ class TestDataFrameAnalytics:
         )
         if using_infer_string:
             # na in object is True while in string pyarrow numpy it's false
-            val = not axis == 0 and not skipna and bool_agg_func == "all"
+            val = not axis == 0 and not skipna and all_boolean_reductions == "all"
         else:
             val = True
-        result = getattr(df, bool_agg_func)(axis=axis, skipna=skipna)
+        result = getattr(df, all_boolean_reductions)(axis=axis, skipna=skipna)
         expected = Series([True, True, val, True])
         tm.assert_series_equal(result, expected)
 
-    # GH#50947 deprecates this but it is not emitting a warning in some builds.
-    @pytest.mark.filterwarnings(
-        "ignore:'any' with datetime64 dtypes is deprecated.*:FutureWarning"
-    )
     def test_any_datetime(self):
         # GH 23070
         float_data = [1, np.nan, 3, np.nan]
@@ -1389,10 +1381,9 @@ class TestDataFrameAnalytics:
         ]
         df = DataFrame({"A": float_data, "B": datetime_data})
 
-        result = df.any(axis=1)
-
-        expected = Series([True, True, True, False])
-        tm.assert_series_equal(result, expected)
+        msg = "datetime64 type does not support operation: 'any'"
+        with pytest.raises(TypeError, match=msg):
+            df.any(axis=1)
 
     def test_any_all_bool_only(self):
         # GH 25101
@@ -1484,23 +1475,23 @@ class TestDataFrameAnalytics:
                 TypeError, match="dtype category does not support reduction"
             ):
                 getattr(DataFrame(data), func.__name__)(axis=None)
-        else:
-            msg = "'(any|all)' with datetime64 dtypes is deprecated"
-            if data.dtypes.apply(lambda x: x.kind == "M").any():
-                warn = FutureWarning
-            else:
-                warn = None
+        if data.dtypes.apply(lambda x: x.kind == "M").any():
+            # GH#34479
+            msg = "datetime64 type does not support operation: '(any|all)'"
+            with pytest.raises(TypeError, match=msg):
+                func(data)
 
-            with tm.assert_produces_warning(warn, match=msg, check_stacklevel=False):
-                # GH#34479
-                result = func(data)
+            # method version
+            with pytest.raises(TypeError, match=msg):
+                getattr(DataFrame(data), func.__name__)(axis=None)
+
+        elif data.dtypes.apply(lambda x: x != "category").any():
+            result = func(data)
             assert isinstance(result, np.bool_)
             assert result.item() is expected
 
             # method version
-            with tm.assert_produces_warning(warn, match=msg):
-                # GH#34479
-                result = getattr(DataFrame(data), func.__name__)(axis=None)
+            result = getattr(DataFrame(data), func.__name__)(axis=None)
             assert isinstance(result, np.bool_)
             assert result.item() is expected
 
@@ -1737,27 +1728,26 @@ class TestDataFrameReductions:
 
 
 class TestNuisanceColumns:
-    @pytest.mark.parametrize("method", ["any", "all"])
-    def test_any_all_categorical_dtype_nuisance_column(self, method):
+    def test_any_all_categorical_dtype_nuisance_column(self, all_boolean_reductions):
         # GH#36076 DataFrame should match Series behavior
         ser = Series([0, 1], dtype="category", name="A")
         df = ser.to_frame()
 
         # Double-check the Series behavior is to raise
         with pytest.raises(TypeError, match="does not support reduction"):
-            getattr(ser, method)()
+            getattr(ser, all_boolean_reductions)()
 
         with pytest.raises(TypeError, match="does not support reduction"):
-            getattr(np, method)(ser)
+            getattr(np, all_boolean_reductions)(ser)
 
         with pytest.raises(TypeError, match="does not support reduction"):
-            getattr(df, method)(bool_only=False)
+            getattr(df, all_boolean_reductions)(bool_only=False)
 
         with pytest.raises(TypeError, match="does not support reduction"):
-            getattr(df, method)(bool_only=None)
+            getattr(df, all_boolean_reductions)(bool_only=None)
 
         with pytest.raises(TypeError, match="does not support reduction"):
-            getattr(np, method)(df, axis=0)
+            getattr(np, all_boolean_reductions)(df, axis=0)
 
     def test_median_categorical_dtype_nuisance_column(self):
         # GH#21020 DataFrame.median should match Series.median
@@ -1869,7 +1859,6 @@ class TestEmptyDataFrameReductions:
         "opname, dtype, exp_value, exp_dtype",
         [
             ("sum", "Int8", 0, ("Int32" if is_windows_np2_or_is32 else "Int64")),
-            ("prod", "Int8", 1, ("Int32" if is_windows_np2_or_is32 else "Int64")),
             ("prod", "Int8", 1, ("Int32" if is_windows_np2_or_is32 else "Int64")),
             ("sum", "Int64", 0, "Int64"),
             ("prod", "Int64", 1, "Int64"),
@@ -2126,15 +2115,16 @@ def test_numeric_ea_axis_1(method, skipna, min_count, any_numeric_ea_dtype):
     if method in ("prod", "product", "sum"):
         kwargs["min_count"] = min_count
 
-    warn = None
-    msg = None
     if not skipna and method in ("idxmax", "idxmin"):
-        warn = FutureWarning
+        # GH#57745 - EAs use groupby for axis=1 which still needs a proper deprecation.
         msg = f"The behavior of DataFrame.{method} with all-NA values"
-    with tm.assert_produces_warning(warn, match=msg):
-        result = getattr(df, method)(axis=1, **kwargs)
-    with tm.assert_produces_warning(warn, match=msg):
-        expected = getattr(expected_df, method)(axis=1, **kwargs)
+        with tm.assert_produces_warning(FutureWarning, match=msg):
+            getattr(df, method)(axis=1, **kwargs)
+        with pytest.raises(ValueError, match="Encountered an NA value"):
+            getattr(expected_df, method)(axis=1, **kwargs)
+        return
+    result = getattr(df, method)(axis=1, **kwargs)
+    expected = getattr(expected_df, method)(axis=1, **kwargs)
     if method not in ("idxmax", "idxmin"):
         expected = expected.astype(expected_dtype)
     tm.assert_series_equal(result, expected)
